@@ -4,17 +4,16 @@ import json
 import os
 import pathlib
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional, TypedDict, cast
+from typing import Dict, List, TypedDict, cast
 
 import dotenv
-import langchain
-import langchain.chat_models
-import langchain.utils
+import langchain_core.messages
 import tqdm
 import tqdm.asyncio
-from langchain_core.messages import BaseMessage
-from langchain_core.rate_limiters import InMemoryRateLimiter
+from langchain_core.messages import AIMessage, BaseMessage
 from torch.utils.data import DataLoader, Subset
+from vllm import LLM, SamplingParams
+from vllm.entrypoints.chat_utils import ChatCompletionMessageParam
 
 from benchmark import Dataset, profiles
 
@@ -27,17 +26,16 @@ class EvalConfig:
     profile: str
 
     model: str
-    model_provider: str
-    base_url: Optional[str]
 
     batch_size: int
     dataset_dir: pathlib.Path
     eval_result_dir: pathlib.Path
-    rate_limit_rpm: Optional[int]
+    pipeline_parallel_size: int
+    tensor_parallel_size: int
 
     @property
     def name(self) -> str:
-        return f"{self.model.replace('/', '-')}-{self.profile}"
+        return f"{self.model.split('/')[-1]}-{self.profile}"
 
 
 class EvalResult(TypedDict):
@@ -89,24 +87,19 @@ async def evaluate(eval_config: EvalConfig) -> None:
         ),
         batch_size=eval_config.batch_size,
         collate_fn=lambda x: x,
-        num_workers=1,
     )
 
     profile = profiles.get_profile(eval_config.profile)
 
-    chat_model = langchain.chat_models.init_chat_model(
+    llm = LLM(
         eval_config.model,
-        model_provider=eval_config.model_provider,
-        base_url=eval_config.base_url,
-        rate_limiter=(
-            None
-            if eval_config.rate_limit_rpm is None
-            else InMemoryRateLimiter(
-                requests_per_second=eval_config.rate_limit_rpm / 60
-            )
-        ),
-        temperature=0,
+        limit_mm_per_prompt={"image": profile.video_sample_num_frames},
+        pipeline_parallel_size=eval_config.pipeline_parallel_size,
+        tensor_parallel_size=eval_config.tensor_parallel_size,
+        trust_remote_code=True,
     )
+
+    sampling_params = SamplingParams(temperature=0)
 
     # Stage 1: Generate outputs.
     for dataset_entries in tqdm.tqdm(dataloader):
@@ -117,13 +110,16 @@ async def evaluate(eval_config: EvalConfig) -> None:
         ]
 
         while True:
-            messages = [
-                profile.build_prompt(
-                    dataset_entry,
-                    existing_messages=existing_messages[i],
-                )
-                for i, dataset_entry in enumerate(dataset_entries)
-            ]
+            messages = await asyncio.gather(
+                *[
+                    asyncio.to_thread(
+                        profile.build_prompt,
+                        dataset_entry,
+                        existing_messages=existing_messages[i],
+                    )
+                    for i, dataset_entry in enumerate(dataset_entries)
+                ]
+            )
 
             for i, messages_entry in enumerate(messages):
                 if messages_entry is None:
@@ -141,14 +137,28 @@ async def evaluate(eval_config: EvalConfig) -> None:
                 if messages_entry is not None
             ]
 
-            responses = await chat_model.abatch(
-                cast(
-                    List[Any], [message for message in messages if message is not None]
-                )
+            messages_for_generation = cast(
+                List[List[BaseMessage]],
+                [message for message in messages if message is not None],
             )
 
-            for i, response in zip(id_map, responses):
-                existing_messages[i].append(response)
+            openai_messages = cast(
+                List[List[ChatCompletionMessageParam]],
+                [
+                    langchain_core.messages.convert_to_openai_messages(message)
+                    for message in messages_for_generation
+                ],
+            )
+
+            outputs = llm.chat(
+                openai_messages,
+                sampling_params=sampling_params,
+            )
+
+            for i, output in zip(id_map, outputs):
+                generated_text = output.outputs[0].text
+                response_message = AIMessage(generated_text)
+                existing_messages[i].append(response_message)
 
         for dataset_entry, messages in zip(dataset_entries, existing_messages):
             assert len(messages) > 0
@@ -250,8 +260,6 @@ async def main() -> None:
     )
 
     parser.add_argument("--model", required=True, help="Model to use")
-    parser.add_argument("--model-provider", required=True, help="Model provider")
-    parser.add_argument("--base-url", default=None, help="Base URL")
 
     parser.add_argument("--batch-size", type=int, default=1, help="Batch size")
     parser.add_argument(
@@ -263,7 +271,16 @@ async def main() -> None:
         help="Evaluation result directory",
     )
     parser.add_argument(
-        "--rate-limit-rpm", type=int, default=0, help="Rate limit (RPM)"
+        "--pipeline-parallel-size",
+        type=int,
+        default=1,
+        help="Number of pipeline parallel groups",
+    )
+    parser.add_argument(
+        "--tensor-parallel-size",
+        type=int,
+        default=1,
+        help="Number of tensor parallel groups",
     )
 
     args = parser.parse_args()
@@ -271,12 +288,11 @@ async def main() -> None:
     eval_config = EvalConfig(
         profile=cast(str, args.profile),
         model=cast(str, args.model),
-        model_provider=cast(str, args.model_provider),
-        base_url=cast(Optional[str], args.base_url),
         batch_size=cast(int, args.batch_size),
         dataset_dir=pathlib.Path(cast(str, args.dataset_dir)),
         eval_result_dir=pathlib.Path(cast(str, args.eval_result_dir)),
-        rate_limit_rpm=cast(int, args.rate_limit_rpm) or None,
+        pipeline_parallel_size=cast(int, args.pipeline_parallel_size),
+        tensor_parallel_size=cast(int, args.tensor_parallel_size),
     )
 
     await evaluate(eval_config)

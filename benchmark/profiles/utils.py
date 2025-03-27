@@ -1,9 +1,18 @@
+from typing import List
+
+from benchmark.profiles.analysis_profile import AnalysisProfile
 from benchmark.profiles.base_profile import BaseProfile
 from benchmark.profiles.zero_shot_profile import ZeroShotProfile
 
-AVAILABLE_PROFILES = ["zero_shot"]
+_AVAILABLE_PROFILES = {
+    "zero_shot": ZeroShotProfile,
+    "analysis": AnalysisProfile,
+}
+
+
+def get_available_profiles() -> List[str]:
+    return list(_AVAILABLE_PROFILES.keys())
+
 
 def get_profile(profile_name: str) -> BaseProfile:
-    return {
-        "zero_shot": ZeroShotProfile,
-    }[profile_name]()
+    return _AVAILABLE_PROFILES[profile_name]()

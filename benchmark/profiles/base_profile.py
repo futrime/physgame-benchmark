@@ -1,12 +1,19 @@
 from abc import ABC, abstractmethod
 from typing import List, Optional
 
-from langchain_core.messages import BaseMessage
+from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
 from benchmark.dataset import Dataset
 
 
 class BaseProfile(ABC):
+    @property
+    @abstractmethod
+    def video_sample_num_frames(self) -> int:
+        """The number of frames to sample from the video."""
+
+        raise NotImplementedError
+
     @abstractmethod
     def build_prompt(
         self, dataset_entry: Dataset.Entry, existing_messages: List[BaseMessage]
@@ -38,3 +45,30 @@ class BaseProfile(ABC):
         """
 
         raise NotImplementedError
+
+    @staticmethod
+    def _get_round(messages: List[BaseMessage]) -> int:
+        """Gets the round number from the given messages.
+
+        Args:
+            messages: The messages to get the round number from.
+
+        Returns:
+            The round number.
+        """
+
+        if len(messages) == 0:
+            return 0
+
+        assert len(messages) % 2 == 1
+        assert isinstance(messages[0], SystemMessage)
+
+        round = 0
+
+        for i in range(1, len(messages), 2):
+            assert isinstance(messages[i], HumanMessage)
+            assert isinstance(messages[i + 1], AIMessage)
+
+            round += 1
+
+        return round
