@@ -17,6 +17,7 @@ from langchain_core.rate_limiters import InMemoryRateLimiter
 from torch.utils.data import DataLoader, Subset
 
 from benchmark import Dataset, profiles
+from benchmark.dataset import DatasetEntry
 
 DEFAULT_DATASET_DIR = ".dev/PhysGame/PhysGame-Benchmark"
 DEFAULT_EVAL_RESULT_DIR = ".dev/eval"
@@ -110,7 +111,7 @@ async def evaluate(eval_config: EvalConfig) -> None:
 
     # Stage 1: Generate outputs.
     for dataset_entries in tqdm.tqdm(dataloader):
-        dataset_entries: List[Dataset.Entry]
+        dataset_entries: List[DatasetEntry]
 
         existing_messages: List[List[BaseMessage]] = [
             [] for _ in range(len(dataset_entries))

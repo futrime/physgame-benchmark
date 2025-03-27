@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
-from benchmark.dataset import Dataset
+from benchmark.dataset import DatasetEntry
 
 
 class BaseProfile(ABC):
@@ -16,7 +16,7 @@ class BaseProfile(ABC):
 
     @abstractmethod
     def build_prompt(
-        self, dataset_entry: Dataset.Entry, existing_messages: List[BaseMessage]
+        self, dataset_entry: DatasetEntry, existing_messages: List[BaseMessage]
     ) -> Optional[List[BaseMessage]]:
         """Builds the prompt for the given dataset entry and existing messages.
 
@@ -32,7 +32,7 @@ class BaseProfile(ABC):
 
     @abstractmethod
     def check_response(
-        self, dataset_entry: Dataset.Entry, response: str
+        self, dataset_entry: DatasetEntry, response: str
     ) -> Optional[bool]:
         """Checks the model response to the given dataset entry.
 

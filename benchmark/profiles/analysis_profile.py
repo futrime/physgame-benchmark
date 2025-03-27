@@ -3,9 +3,9 @@ import io
 import re
 from typing import List, Optional
 
-from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
+from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
-from benchmark.dataset import Dataset
+from benchmark.dataset import DatasetEntry
 from benchmark.profiles.base_profile import BaseProfile
 from benchmark.utils import sample_video
 
@@ -27,7 +27,7 @@ class AnalysisProfile(BaseProfile):
         return _VIDEO_SAMPLE_NUM_FRAMES
 
     def build_prompt(
-        self, dataset_entry: Dataset.Entry, existing_messages: List[BaseMessage]
+        self, dataset_entry: DatasetEntry, existing_messages: List[BaseMessage]
     ) -> Optional[List[BaseMessage]]:
         round = self._get_round(existing_messages)
 
@@ -47,7 +47,7 @@ class AnalysisProfile(BaseProfile):
                 raise ValueError(f"ZeroShotProfile support max round 1, got {round}")
 
     def check_response(
-        self, dataset_entry: Dataset.Entry, response: str
+        self, dataset_entry: DatasetEntry, response: str
     ) -> Optional[bool]:
         match = re.search(r"\(?([A-D])\)", response)
         if not match:
@@ -55,7 +55,7 @@ class AnalysisProfile(BaseProfile):
 
         return match.group(1) == dataset_entry.answer
 
-    def _build_prompt_round_0(self, dataset_entry: Dataset.Entry) -> List[BaseMessage]:
+    def _build_prompt_round_0(self, dataset_entry: DatasetEntry) -> List[BaseMessage]:
         images = sample_video(
             dataset_entry.video_path, num_frames=_VIDEO_SAMPLE_NUM_FRAMES
         )
@@ -87,7 +87,7 @@ class AnalysisProfile(BaseProfile):
         ]
 
     def _build_prompt_round_1(
-        self, dataset_entry: Dataset.Entry, existing_messages: List[BaseMessage]
+        self, dataset_entry: DatasetEntry, existing_messages: List[BaseMessage]
     ) -> List[BaseMessage]:
         return [
             SystemMessage(_SYSTEM_PROMPT_FOR_ANSWER),

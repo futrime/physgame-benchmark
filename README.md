@@ -10,7 +10,7 @@ source scripts/prepare_env.sh
 
 ## Usage
 
-Evaluate GPT-4o online model with 0-shot profile and batch size 8:
+Evaluate GPT-4o online model:
 
 ```bash
 bash scripts/eval_online_model.sh \
@@ -20,13 +20,15 @@ bash scripts/eval_online_model.sh \
     --batch-size 8
 ```
 
-Evaluate Qwen2.5-VL-7B-Instruct local model with 0-shot profile and batch size 8:
+Evaluate Qwen2.5-VL-7B-Instruct local model:
 
 ```bash
 bash scripts/eval_vllm_model.sh \
     --profile zero_shot \
     --model Qwen/Qwen2.5-VL-7B-Instruct \
-    --batch-size 8
+    --batch-size 8 \
+    --data-parallel-size 8 \
+    --tensor-parallel-size 1
 ```
 
 ## Contributing

@@ -3,22 +3,23 @@ import pathlib
 from dataclasses import dataclass
 from typing import Dict, List, Literal, TypedDict
 
-import torch.utils.data
+from torch.utils.data import Dataset as TorchDataset
 
 VIDEO_DIR_NAME = "PhysGame-Benchmark"
 VIDEO_FILE_NAME_TEMPLATE = "{question_id}.mp4"
 
 
-class Dataset(torch.utils.data.Dataset):
-    @dataclass
-    class Entry:
-        question_id: str
-        tags: List[str]
-        video_path: pathlib.Path
-        question: str
-        options: Dict[Literal["A", "B", "C", "D"], str]
-        answer: str
+@dataclass
+class DatasetEntry:
+    question_id: str
+    tags: List[str]
+    video_path: pathlib.Path
+    question: str
+    options: Dict[Literal["A", "B", "C", "D"], str]
+    answer: str
 
+
+class Dataset(TorchDataset[DatasetEntry]):
     _annotations: Dict[str, "_AnnotationEntry"]
     _base_dir: pathlib.Path
 
@@ -26,7 +27,7 @@ class Dataset(torch.utils.data.Dataset):
         self._annotations = _load_annotation(base_dir)
         self._base_dir = base_dir
 
-    def __getitem__(self, index: int) -> Entry:
+    def __getitem__(self, index: int) -> DatasetEntry:
         question_id = list(self._annotations.keys())[index]
         annotation = self._annotations[question_id]
 
@@ -36,7 +37,7 @@ class Dataset(torch.utils.data.Dataset):
             / VIDEO_FILE_NAME_TEMPLATE.format(question_id=question_id)
         )
 
-        return Dataset.Entry(
+        return DatasetEntry(
             question_id=question_id,
             tags=[annotation["class_anno"], annotation["subclass_anno"]],
             video_path=video_path,
