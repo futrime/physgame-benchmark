@@ -60,21 +60,13 @@ async def evaluate(eval_config: EvalConfig) -> None:
         os.path.join(eval_config.eval_result_dir, eval_config.name), exist_ok=True
     )
 
-    # If the metrics file already exists, skip evaluation.
-    if os.path.exists(
-        os.path.join(eval_config.eval_result_dir, eval_config.name, "metrics.json")
-    ):
-        return
-
     dataset = Dataset(eval_config.dataset_dir)
 
     # Load existing model output IDs.
     generated_question_ids: Set[str] = set()
-    possible_output_filenames = [
-        "output.jsonl",
-        *[f"output-{i}.jsonl" for i in range(eval_config.data_parallel_size)],
-    ]
-    for possible_output_filename in possible_output_filenames:
+    for possible_output_filename in [
+        f"output-{i}.jsonl" for i in range(eval_config.data_parallel_size)
+    ]:
         possible_output_path = os.path.join(
             eval_config.eval_result_dir, eval_config.name, possible_output_filename
         )
@@ -98,75 +90,82 @@ async def evaluate(eval_config: EvalConfig) -> None:
     profile = profiles.get_profile(eval_config.profile)
 
     # Stage 1: Generate outputs.
-    dp_master_ip = os.getenv("VLLM_DP_MASTER_IP", "localhost")
-    dp_master_port = vllm.utils.get_open_port()
+    if len(dataset_not_generated) > 0:
+        dp_master_ip = os.getenv("VLLM_DP_MASTER_IP", "localhost")
+        dp_master_port = vllm.utils.get_open_port()
 
-    def generate_worker(
-        eval_config: EvalConfig,
-        profile: BaseProfile,
-        subset: Subset[DatasetEntry],
-        dp_rank: int,
-        dp_master_ip: str,
-        dp_master_port: int,
-    ) -> None:
-        asyncio.run(
-            generate(
-                eval_config,
-                profile,
-                subset,
-                dp_rank,
-                dp_master_ip,
-                dp_master_port,
+        def generate_worker(
+            eval_config: EvalConfig,
+            profile: BaseProfile,
+            subset: Subset[DatasetEntry],
+            dp_rank: int,
+            dp_master_ip: str,
+            dp_master_port: int,
+        ) -> None:
+            asyncio.run(
+                generate(
+                    eval_config,
+                    profile,
+                    subset,
+                    dp_rank,
+                    dp_master_ip,
+                    dp_master_port,
+                )
             )
-        )
 
-    procs: List[Process] = []
-    for dp_rank in range(eval_config.data_parallel_size):
-        proc = Process(
-            target=generate_worker,
-            args=(
-                eval_config,
-                profile,
-                Subset(
-                    dataset_not_generated,
-                    [
-                        j
-                        for j in range(len(dataset_not_generated))
-                        if j % eval_config.data_parallel_size == dp_rank
-                    ],
+        procs: List[Process] = []
+        for dp_rank in range(eval_config.data_parallel_size):
+            proc = Process(
+                target=generate_worker,
+                args=(
+                    eval_config,
+                    profile,
+                    Subset(
+                        dataset_not_generated,
+                        [
+                            j
+                            for j in range(len(dataset_not_generated))
+                            if j % eval_config.data_parallel_size == dp_rank
+                        ],
+                    ),
+                    dp_rank,
+                    dp_master_ip,
+                    dp_master_port,
                 ),
-                dp_rank,
-                dp_master_ip,
-                dp_master_port,
-            ),
-        )
-        proc.start()
-        procs.append(proc)
-
-    for worker_idx, proc in enumerate(procs):
-        proc.join()
-        if proc.exitcode:
-            raise RuntimeError(
-                f"Generation worker {worker_idx} exited with code {proc.exitcode}"
             )
+            proc.start()
+            procs.append(proc)
+
+        for worker_idx, proc in enumerate(procs):
+            proc.join()
+            if proc.exitcode:
+                raise RuntimeError(
+                    f"Generation worker {worker_idx} exited with code {proc.exitcode}"
+                )
 
     # Stage 2: Aggregate outputs.
-    for i in range(eval_config.data_parallel_size):
-        with open(
-            os.path.join(
-                eval_config.eval_result_dir, eval_config.name, f"output-{i}.jsonl"
-            ),
-            "r",
-            encoding="utf-8",
-        ) as f:
+    processed_question_ids: Set[str] = set()
+    with open(
+        os.path.join(eval_config.eval_result_dir, eval_config.name, "output.jsonl"),
+        "w",
+        encoding="utf-8",
+    ) as f_out:
+        for dp_rank in range(eval_config.data_parallel_size):
             with open(
                 os.path.join(
-                    eval_config.eval_result_dir, eval_config.name, "output.jsonl"
+                    eval_config.eval_result_dir,
+                    eval_config.name,
+                    f"output-{dp_rank}.jsonl",
                 ),
-                "a",
+                "r",
                 encoding="utf-8",
-            ) as f_out:
+            ) as f:
                 for line in f:
+                    model_output_entry = json.loads(line)
+                    if model_output_entry["question_id"] in processed_question_ids:
+                        continue
+                    processed_question_ids.add(model_output_entry["question_id"])
+
                     f_out.write(line)
 
     # Stage 3: Evaluate outputs.
@@ -190,6 +189,9 @@ async def evaluate(eval_config: EvalConfig) -> None:
             dataset_entry = dataset_index.get(model_output_entry["question_id"])
             if dataset_entry is None:
                 continue
+
+            # To prevent double counting, remove the entry from the index.
+            dataset_index.pop(model_output_entry["question_id"])
 
             count += 1
 
@@ -215,8 +217,8 @@ async def evaluate(eval_config: EvalConfig) -> None:
                 correct_count_by_tags[tag] += 1 if correctness else 0
 
     eval_result = EvalResult(
-        accuracy=correct_count / len(dataset),
-        invalid_ratio=1 - valid_count / len(dataset),
+        accuracy=correct_count / count,
+        invalid_ratio=1 - valid_count / count,
         accuracy_by_classes={
             tag: correct_count_by_tags[tag] / count_by_tags[tag]
             for tag in valid_count_by_tags

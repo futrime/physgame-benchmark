@@ -58,12 +58,6 @@ async def evaluate(eval_config: EvalConfig) -> None:
         os.path.join(eval_config.eval_result_dir, eval_config.name), exist_ok=True
     )
 
-    # If the metrics file already exists, skip evaluation.
-    if os.path.exists(
-        os.path.join(eval_config.eval_result_dir, eval_config.name, "metrics.json")
-    ):
-        return
-
     dataset = Dataset(eval_config.dataset_dir)
 
     # Load existing model output IDs.
@@ -194,6 +188,9 @@ async def evaluate(eval_config: EvalConfig) -> None:
             if dataset_entry is None:
                 continue
 
+            # To prevent double counting, remove the entry from the index.
+            dataset_index.pop(model_output_entry["question_id"])
+
             count += 1
 
             for tag in dataset_entry.tags:
@@ -218,8 +215,8 @@ async def evaluate(eval_config: EvalConfig) -> None:
                 correct_count_by_tags[tag] += 1 if correctness else 0
 
     eval_result = EvalResult(
-        accuracy=correct_count / len(dataset),
-        invalid_ratio=1 - valid_count / len(dataset),
+        accuracy=correct_count / count,
+        invalid_ratio=1 - valid_count / count,
         accuracy_by_classes={
             tag: correct_count_by_tags[tag] / count_by_tags[tag]
             for tag in valid_count_by_tags
