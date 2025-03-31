@@ -1,8 +1,8 @@
 from typing import List
 
-from benchmark.profiles.analysis_profile import AnalysisProfile
-from benchmark.profiles.base_profile import BaseProfile
-from benchmark.profiles.zero_shot_profile import ZeroShotProfile
+from .analysis_profile import AnalysisProfile
+from .base_profile import BaseProfile
+from .zero_shot_profile import ZeroShotProfile
 
 _AVAILABLE_PROFILES = {
     "zero_shot": ZeroShotProfile,

@@ -1,0 +1,24 @@
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "physgame-benchmark"
+version = "0.0.0"
+dependencies = [
+    "flashinfer-python @ https://github.com/flashinfer-ai/flashinfer/releases/download/v0.2.4/flashinfer_python-0.2.4+cu124torch2.5-cp38-abi3-linux_x86_64.whl#sha256=fff531e3ba6fd20c967806e6280be89d1eeb37260c413981a3c8fce8c00528ee",
+    "langchain==0.3.21",
+    "langchain-core==0.3.49",
+    "langchain-google-genai==2.1.1",
+    "langchain-openai==0.3.11",
+    "opencv-python==4.11.0.86",
+    "pillow==11.1.0",
+    "python-dotenv==1.1.0",
+    "torch==2.5.1",
+    "tqdm==4.67.1",
+    "vllm==0.7.3",
+]
+requires-python = ">=3.12"
+
+[tool.hatch.metadata]
+allow-direct-references = true

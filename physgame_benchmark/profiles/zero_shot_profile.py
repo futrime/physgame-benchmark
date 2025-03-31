@@ -5,15 +5,11 @@ from typing import List, Optional
 
 from langchain_core.messages import BaseMessage, HumanMessage, SystemMessage
 
-from benchmark.dataset import DatasetEntry
-from benchmark.profiles.base_profile import BaseProfile
-from benchmark.utils import sample_video
+from ..dataset import DatasetEntry
+from ..utils import sample_video
+from .base_profile import BaseProfile
 
-_SYSTEM_PROMPT_FOR_ANALYZE = """Watch the video carefully and analyze the events and object movements, \
-focusing on any inconsistencies with physical laws. \
-Identify and highlight instances where the behavior deviates from expected real-world physics."""
-
-_SYSTEM_PROMPT_FOR_ANSWER = """Watch the video carefully and analyze the events and object movements, \
+_SYSTEM_PROMPT = """Watch the video carefully and analyze the events and object movements, \
 focusing on any inconsistencies with physical laws. \
 Identify and highlight instances where the behavior deviates from expected real-world physics, \
 and select the most accurate option to describe the detected glitch."""
@@ -21,7 +17,7 @@ and select the most accurate option to describe the detected glitch."""
 _VIDEO_SAMPLE_NUM_FRAMES = 8
 
 
-class AnalysisProfile(BaseProfile):
+class ZeroShotProfile(BaseProfile):
     @property
     def video_sample_num_frames(self) -> int:
         return _VIDEO_SAMPLE_NUM_FRAMES
@@ -35,13 +31,6 @@ class AnalysisProfile(BaseProfile):
             case 0:
                 return self._build_prompt_round_0(dataset_entry)
             case 1:
-                return self._build_prompt_round_1(dataset_entry, existing_messages)
-            case 2:
-                # print("=====================================================")
-                # print("Analysis:", existing_messages[-3].content)
-                # print("Answer:", existing_messages[-1].content)
-                # print()
-
                 return None
             case _:
                 raise ValueError(f"ZeroShotProfile support max round 1, got {round}")
@@ -68,8 +57,8 @@ class AnalysisProfile(BaseProfile):
                 base64.b64encode(image_bytes.getvalue()).decode("utf-8")
             )
 
-        return [
-            SystemMessage(_SYSTEM_PROMPT_FOR_ANALYZE),
+        messages: List[BaseMessage] = [
+            SystemMessage(_SYSTEM_PROMPT),
             HumanMessage(
                 [
                     *[
@@ -81,22 +70,13 @@ class AnalysisProfile(BaseProfile):
                         }
                         for base64_image in base64_images
                     ],
-                    dataset_entry.question,
+                    f"""{dataset_entry.question}
+{"\n".join([f"({key}) {value}" for key, value in dataset_entry.options.items()])}
+Only give the best option enclosed in parentheses, \
+i.e. (A), (B), (C), or (D). \
+You must always give an option, even if you are not sure.""",
                 ]
             ),
         ]
 
-    def _build_prompt_round_1(
-        self, dataset_entry: DatasetEntry, existing_messages: List[BaseMessage]
-    ) -> List[BaseMessage]:
-        return [
-            SystemMessage(_SYSTEM_PROMPT_FOR_ANSWER),
-            *existing_messages[1:],  # Skip the system message.
-            HumanMessage(
-                f"""{dataset_entry.question}
-{"\n".join([f"({key}) {value}" for key, value in dataset_entry.options.items()])}
-Only give the best option enclosed in parentheses, \
-i.e. (A), (B), (C), or (D). \
-You must always select one of the options provided.""",
-            ),
-        ]
+        return messages

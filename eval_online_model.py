@@ -16,8 +16,8 @@ from langchain_core.messages import BaseMessage
 from langchain_core.rate_limiters import InMemoryRateLimiter
 from torch.utils.data import DataLoader, Subset
 
-from benchmark import Dataset, profiles
-from benchmark.dataset import DatasetEntry
+import physgame_benchmark.profiles as profiles
+from physgame_benchmark import Dataset, DatasetEntry
 
 DEFAULT_DATASET_DIR = ".dev/PhysGame/PhysGame-Benchmark"
 DEFAULT_EVAL_RESULT_DIR = ".dev/eval"
@@ -87,7 +87,7 @@ async def evaluate(eval_config: EvalConfig) -> None:
         num_workers=1,
     )
 
-    profile = profiles.get_profile(eval_config.profile)
+    profile = profiles.utils.get_profile(eval_config.profile)
 
     chat_model = langchain.chat_models.init_chat_model(
         eval_config.model,
@@ -243,7 +243,7 @@ async def main() -> None:
     parser.add_argument(
         "--profile",
         required=True,
-        choices=profiles.get_available_profiles(),
+        choices=profiles.utils.get_available_profiles(),
         help="Evaluation profile",
     )
 

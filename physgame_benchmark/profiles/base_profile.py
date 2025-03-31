@@ -3,7 +3,7 @@ from typing import List, Optional
 
 from langchain_core.messages import AIMessage, BaseMessage, HumanMessage, SystemMessage
 
-from benchmark.dataset import DatasetEntry
+from ..dataset import DatasetEntry
 
 
 class BaseProfile(ABC):

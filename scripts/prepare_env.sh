@@ -10,4 +10,5 @@ else
     conda create -n physgame-benchmark -y python=3.12
     conda activate physgame-benchmark
     pip install -r requirements.txt
+    pip install -e .
 fi
