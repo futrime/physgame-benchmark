@@ -159,8 +159,8 @@ class ResultManager:
             accuracy=correct_count / count if count > 0 else 0,
             valid_rate=valid_count / count if count > 0 else 0,
             accuracy_by_tag={
-                tag: correct_count_by_tag[tag] / valid_count_by_tag[tag]
-                for tag in valid_count_by_tag
+                tag: correct_count_by_tag[tag] / count_by_tag[tag]
+                for tag in count_by_tag
             },
             valid_rate_by_tag={
                 tag: valid_count_by_tag[tag] / count_by_tag[tag] for tag in count_by_tag
