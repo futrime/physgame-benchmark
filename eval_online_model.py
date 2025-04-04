@@ -7,7 +7,7 @@ from typing import Dict, List, Optional, TypedDict, cast
 import dotenv
 import openai
 import tqdm
-from openai.types.responses import ResponseInputParam
+from openai.types.chat import ChatCompletionMessageParam
 from torch.utils.data import DataLoader, Subset
 
 from physgame_benchmark import Dataset, DatasetEntry, profiles
@@ -22,6 +22,7 @@ class EvalConfig:
     profile: str
 
     model: str
+    api_key: Optional[str]
     base_url: Optional[str]
 
     batch_size: int
@@ -52,20 +53,21 @@ async def evaluate(eval_config: EvalConfig) -> None:
     result_manager.load_model_outputs()
 
     client = openai.AsyncOpenAI(
+        api_key=eval_config.api_key,
         base_url=eval_config.base_url,
     )
 
-    async def generate(inputs: List[ResponseInputParam]) -> List[str]:
+    async def generate(inputs: List[List[ChatCompletionMessageParam]]) -> List[str]:
         tasks = [
-            client.responses.create(
-                input=input,
+            client.chat.completions.create(
+                messages=messages,
                 model=eval_config.model,
                 temperature=0,
             )
-            for input in inputs
+            for messages in inputs
         ]
         responses = await asyncio.gather(*tasks)
-        return [response.output_text for response in responses]
+        return [str(response.choices[0].message.content) for response in responses]
 
     dataset = Dataset(eval_config.dataset_dir)
     dataloader = DataLoader(
@@ -102,7 +104,7 @@ async def evaluate(eval_config: EvalConfig) -> None:
 
 
 async def main() -> None:
-    dotenv.load_dotenv()
+    dotenv.load_dotenv(override=True)
 
     parser = argparse.ArgumentParser()
 
@@ -114,6 +116,7 @@ async def main() -> None:
     )
 
     parser.add_argument("--model", required=True, help="Model to use")
+    parser.add_argument("--api-key", default=None, help="API key")
     parser.add_argument("--base-url", default=None, help="Base URL")
 
     parser.add_argument("--batch-size", type=int, default=1, help="Batch size")
@@ -131,6 +134,7 @@ async def main() -> None:
     eval_config = EvalConfig(
         profile=cast(str, args.profile),
         model=cast(str, args.model),
+        api_key=cast(Optional[str], args.api_key),
         base_url=cast(Optional[str], args.base_url),
         batch_size=cast(int, args.batch_size),
         dataset_dir=pathlib.Path(cast(str, args.dataset_dir)),

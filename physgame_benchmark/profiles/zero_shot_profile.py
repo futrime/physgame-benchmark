@@ -5,12 +5,14 @@ import re
 from pathlib import Path
 from typing import Awaitable, Callable, List, Optional
 
-from openai.types.responses import (
-    EasyInputMessageParam,
-    ResponseInputImageParam,
-    ResponseInputParam,
-    ResponseInputTextParam,
+from openai.types.chat import (
+    ChatCompletionContentPartImageParam,
+    ChatCompletionContentPartTextParam,
+    ChatCompletionMessageParam,
+    ChatCompletionSystemMessageParam,
+    ChatCompletionUserMessageParam,
 )
+from openai.types.chat.chat_completion_content_part_image_param import ImageURL
 
 from ..dataset import DatasetEntry
 from ..utils import sample_video
@@ -27,7 +29,9 @@ class ZeroShotProfile(BaseProfile):
     async def predict(
         self,
         dataset_entries: List[DatasetEntry],
-        generate_func: Callable[[List[ResponseInputParam]], Awaitable[List[str]]],
+        generate_func: Callable[
+            [List[List[ChatCompletionMessageParam]]], Awaitable[List[str]]
+        ],
     ) -> List[str]:
         inputs = await asyncio.gather(
             *[self._prepare_input(dataset_entry) for dataset_entry in dataset_entries]
@@ -47,32 +51,33 @@ class ZeroShotProfile(BaseProfile):
     async def _prepare_input(
         self,
         dataset_entry: DatasetEntry,
-    ) -> ResponseInputParam:
+    ) -> List[ChatCompletionMessageParam]:
         base64_images = await asyncio.to_thread(
             self.video_to_base64_images, dataset_entry.video_path
         )
 
-        response_input: ResponseInputParam = [
-            EasyInputMessageParam(
+        response_input: List[ChatCompletionMessageParam] = [
+            ChatCompletionSystemMessageParam(
                 role="system",
                 content="""Watch the video carefully and analyze the events and object movements, \
 focusing on any inconsistencies with physical laws. \
 Identify and highlight instances where the behavior deviates from expected real-world physics, \
 and select the most accurate option to describe the detected glitch.""",
             ),
-            EasyInputMessageParam(
+            ChatCompletionUserMessageParam(
                 role="user",
                 content=[
                     *[
-                        ResponseInputImageParam(
-                            detail="auto",
-                            type="input_image",
-                            image_url=f"data:image/jpeg;base64,{base64_image}",
+                        ChatCompletionContentPartImageParam(
+                            type="image_url",
+                            image_url=ImageURL(
+                                url=f"data:image/jpeg;base64,{base64_image}"
+                            ),
                         )
                         for base64_image in base64_images
                     ],
-                    ResponseInputTextParam(
-                        type="input_text",
+                    ChatCompletionContentPartTextParam(
+                        type="text",
                         text=f"""{dataset_entry.question}
 {"\n".join([f"({key}) {value}" for key, value in dataset_entry.options.items()])}
 Only give the best option enclosed in parentheses, i.e. (A), (B), (C), or (D). \
