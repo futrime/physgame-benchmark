@@ -1,12 +1,12 @@
-from typing import List
+from typing import Dict, List, Type
 
-from .analysis_profile import AnalysisProfile
+# from .analysis_profile import AnalysisProfile
 from .base_profile import BaseProfile
 from .zero_shot_profile import ZeroShotProfile
 
-_AVAILABLE_PROFILES = {
+_AVAILABLE_PROFILES: Dict[str, Type[BaseProfile]] = {
     "zero_shot": ZeroShotProfile,
-    "analysis": AnalysisProfile,
+    # "analysis": AnalysisProfile,
 }
 
 

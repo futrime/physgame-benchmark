@@ -10,6 +10,15 @@ def sample_video(
     *,
     num_frames: int,
 ) -> List[PIL.Image.Image]:
+    """Samples frames from a video file.
+
+    Args:
+        video_path: Path to the video file.
+        num_frames: Number of frames to sample.
+
+    Returns:
+        Sampled frames as a list of PIL images.
+    """
     cap = cv2.VideoCapture(str(video_path))
     frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT))
     frame_rate = int(cap.get(cv2.CAP_PROP_FPS))
