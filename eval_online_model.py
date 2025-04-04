@@ -53,7 +53,6 @@ async def evaluate(eval_config: EvalConfig) -> None:
 
     client = openai.AsyncOpenAI(
         base_url=eval_config.base_url,
-        max_retries=10,
     )
 
     async def generate(inputs: List[ResponseInputParam]) -> List[str]:
