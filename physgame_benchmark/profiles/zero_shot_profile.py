@@ -1,8 +1,5 @@
 import asyncio
-import base64
-import io
 import re
-from pathlib import Path
 from typing import Awaitable, Callable, List, Optional
 
 from openai.types.chat import (
@@ -15,7 +12,7 @@ from openai.types.chat import (
 from openai.types.chat.chat_completion_content_part_image_param import ImageURL
 
 from ..dataset import DatasetEntry
-from ..utils import sample_video
+from ..utils import sample_video_to_base64_images
 from .base_profile import BaseProfile
 
 _NUM_VIDEO_SAMPLE_FRAMES = 8
@@ -53,7 +50,9 @@ class ZeroShotProfile(BaseProfile):
         dataset_entry: DatasetEntry,
     ) -> List[ChatCompletionMessageParam]:
         base64_images = await asyncio.to_thread(
-            self.video_to_base64_images, dataset_entry.video_path
+            sample_video_to_base64_images,
+            dataset_entry.video_path,
+            num_frames=_NUM_VIDEO_SAMPLE_FRAMES,
         )
 
         response_input: List[ChatCompletionMessageParam] = [
@@ -88,16 +87,3 @@ You must always give an option, even if you are not sure.""",
         ]
 
         return response_input
-
-    def video_to_base64_images(self, video_path: Path) -> List[str]:
-        images = sample_video(video_path, num_frames=_NUM_VIDEO_SAMPLE_FRAMES)
-
-        base64_images: List[str] = []
-        for image in images:
-            image_bytes = io.BytesIO()
-            image.save(image_bytes, format="JPEG")
-            base64_images.append(
-                base64.b64encode(image_bytes.getvalue()).decode("utf-8")
-            )
-
-        return base64_images

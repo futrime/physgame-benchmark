@@ -47,7 +47,7 @@ class ModelOutputEntry(TypedDict):
 
 
 async def evaluate(eval_config: EvalConfig) -> None:
-    profile = profiles.utils.get_profile(eval_config.profile)
+    profile = profiles.get_profile(eval_config.profile)
 
     result_manager = ResultManager(eval_config.result_base_dir / eval_config.name)
     result_manager.load_model_outputs()
@@ -111,7 +111,7 @@ async def main() -> None:
     parser.add_argument(
         "--profile",
         required=True,
-        choices=profiles.utils.get_available_profiles(),
+        choices=profiles.get_available_profiles(),
         help="Evaluation profile",
     )
 
