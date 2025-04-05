@@ -1,17 +1,35 @@
 import argparse
 import asyncio
+import base64
 import pathlib
 from dataclasses import dataclass
+from io import BytesIO
 from typing import List, Optional, cast
 
 import dotenv
 import openai
 import tqdm
-from openai.types.chat import ChatCompletionMessageParam
+from openai.types.chat import (
+    ChatCompletionContentPartImageParam,
+    ChatCompletionContentPartParam,
+    ChatCompletionContentPartTextParam,
+    ChatCompletionMessageParam,
+)
+from openai.types.chat.chat_completion_content_part_image_param import ImageURL
+from PIL.Image import Image
 from torch.utils.data import DataLoader, Subset
 
-from physgame_benchmark import Dataset, DatasetEntry, profiles
-from physgame_benchmark.result_manager import ModelOutputEntry, ResultManager
+from physgame_benchmark import (
+    Conversation,
+    Dataset,
+    DatasetEntry,
+    ModelOutputEntry,
+    ResultManager,
+    TextContentPart,
+    VideoContentPart,
+    profiles,
+    utils,
+)
 
 DEFAULT_DATASET_DIR = ".dev/PhysGame/PhysGame-Benchmark"
 DEFAULT_EVAL_RESULT_BASE_DIR = ".dev/eval"
@@ -34,6 +52,72 @@ class EvalConfig:
         return f"{self.model.replace('/', '-')}-{self.profile}"
 
 
+async def convert_conversation_to_openai_format(
+    conversation: Conversation,
+) -> List[ChatCompletionMessageParam]:
+    openai_messages: List[ChatCompletionMessageParam] = []
+
+    for message in conversation:
+        openai_contents: List[ChatCompletionContentPartParam] = []
+
+        for content_part in message.content:
+            if isinstance(content_part, TextContentPart):
+                openai_contents.append(
+                    ChatCompletionContentPartTextParam(
+                        type="text",
+                        text=content_part.text,
+                    )
+                )
+            elif isinstance(content_part, VideoContentPart):
+                images = await asyncio.to_thread(
+                    utils.sample_video,
+                    content_part.file_path,
+                    num_frames=content_part.num_sample_frames,
+                )
+                assert len(images) == content_part.num_sample_frames
+
+                image_base64_urls = await asyncio.gather(
+                    *[
+                        asyncio.to_thread(convert_image_to_base64_url, image)
+                        for image in images
+                    ]
+                )
+                assert len(image_base64_urls) == content_part.num_sample_frames
+
+                openai_contents.extend(
+                    [
+                        ChatCompletionContentPartImageParam(
+                            type="image_url",
+                            image_url=ImageURL(
+                                url=image_base64_url,
+                            ),
+                        )
+                        for image_base64_url in image_base64_urls
+                    ]
+                )
+
+        openai_message = cast(
+            ChatCompletionMessageParam,
+            {
+                "role": message.role,
+                "content": openai_contents,
+            },
+        )
+
+        openai_messages.append(openai_message)
+
+    return openai_messages
+
+
+def convert_image_to_base64_url(
+    image: Image,
+) -> str:
+    image_bytes = BytesIO()
+    image.save(image_bytes, format="JPEG")
+    base64_image = base64.b64encode(image_bytes.getvalue()).decode("utf-8")
+    return f"data:image/jpeg;base64,{base64_image}"
+
+
 async def evaluate(eval_config: EvalConfig) -> None:
     profile = profiles.get_profile(eval_config.profile)
 
@@ -45,16 +129,24 @@ async def evaluate(eval_config: EvalConfig) -> None:
         base_url=eval_config.base_url,
     )
 
-    async def generate(inputs: List[List[ChatCompletionMessageParam]]) -> List[str]:
-        tasks = [
-            client.chat.completions.create(
-                messages=messages,
-                model=eval_config.model,
-                temperature=0,
-            )
-            for messages in inputs
-        ]
-        responses = await asyncio.gather(*tasks)
+    async def generate(conversations: List[Conversation]) -> List[str]:
+        messages_list = await asyncio.gather(
+            *[
+                convert_conversation_to_openai_format(conversation)
+                for conversation in conversations
+            ]
+        )
+
+        responses = await asyncio.gather(
+            *[
+                client.chat.completions.create(
+                    messages=messages,
+                    model=eval_config.model,
+                    temperature=0,
+                )
+                for messages in messages_list
+            ]
+        )
         return [str(response.choices[0].message.content) for response in responses]
 
     dataset = Dataset(eval_config.dataset_dir)

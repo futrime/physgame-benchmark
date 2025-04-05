@@ -1,8 +1,7 @@
 from abc import ABC, abstractmethod
 from typing import Awaitable, Callable, List, Optional
 
-from openai.types.chat import ChatCompletionMessageParam
-
+from ..conversation import Conversation
 from ..dataset import DatasetEntry
 
 
@@ -18,9 +17,7 @@ class BaseProfile(ABC):
     async def predict(
         self,
         dataset_entries: List[DatasetEntry],
-        generate_func: Callable[
-            [List[List[ChatCompletionMessageParam]]], Awaitable[List[str]]
-        ],
+        generate_func: Callable[[List[Conversation]], Awaitable[List[str]]],
     ) -> List[str]:
         """Generates predictions for the given dataset entries.
 

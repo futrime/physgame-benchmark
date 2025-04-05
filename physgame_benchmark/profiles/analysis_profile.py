@@ -2,18 +2,8 @@ import asyncio
 import re
 from typing import Awaitable, Callable, List, Optional
 
-from openai.types.chat import (
-    ChatCompletionAssistantMessageParam,
-    ChatCompletionContentPartImageParam,
-    ChatCompletionContentPartTextParam,
-    ChatCompletionMessageParam,
-    ChatCompletionSystemMessageParam,
-    ChatCompletionUserMessageParam,
-)
-from openai.types.chat.chat_completion_content_part_image_param import ImageURL
-
+from ..conversation import Conversation, Message, TextContentPart, VideoContentPart
 from ..dataset import DatasetEntry
-from ..utils import sample_video_to_base64_images
 from .base_profile import BaseProfile
 
 _NUM_VIDEO_SAMPLE_FRAMES = 8
@@ -27,9 +17,7 @@ class AnalysisProfile(BaseProfile):
     async def predict(
         self,
         dataset_entries: List[DatasetEntry],
-        generate_func: Callable[
-            [List[List[ChatCompletionMessageParam]]], Awaitable[List[str]]
-        ],
+        generate_func: Callable[[List[Conversation]], Awaitable[List[str]]],
     ) -> List[str]:
         inputs_0 = await asyncio.gather(
             *[
@@ -65,35 +53,27 @@ class AnalysisProfile(BaseProfile):
     async def _prepare_input_round_0(
         self,
         dataset_entry: DatasetEntry,
-    ) -> List[ChatCompletionMessageParam]:
-        base64_images = await asyncio.to_thread(
-            sample_video_to_base64_images,
-            dataset_entry.video_path,
-            num_frames=_NUM_VIDEO_SAMPLE_FRAMES,
-        )
-
-        response_input: List[ChatCompletionMessageParam] = [
-            ChatCompletionSystemMessageParam(
+    ) -> Conversation:
+        response_input: Conversation = [
+            Message(
                 role="system",
-                content="""Watch the video carefully and analyze the events and object movements, \
+                content=[
+                    TextContentPart(
+                        text="""Watch the video carefully and analyze the events and object movements, \
 focusing on any inconsistencies with physical laws. \
 Identify and highlight instances where the behavior deviates from expected real-world physics, \
 and analyze every option to determine how accurate are they to describe the detected glitch.""",
+                    )
+                ],
             ),
-            ChatCompletionUserMessageParam(
+            Message(
                 role="user",
                 content=[
-                    *[
-                        ChatCompletionContentPartImageParam(
-                            type="image_url",
-                            image_url=ImageURL(
-                                url=f"data:image/jpeg;base64,{base64_image}"
-                            ),
-                        )
-                        for base64_image in base64_images
-                    ],
-                    ChatCompletionContentPartTextParam(
-                        type="text",
+                    VideoContentPart(
+                        file_path=dataset_entry.video_path,
+                        num_sample_frames=self.num_video_sample_frames,
+                    ),
+                    TextContentPart(
                         text=f"""{dataset_entry.question}
 {"\n".join([f"({key}) {value}" for key, value in dataset_entry.options.items()])}
 Give analysis for every option, but do not give the answer yet.""",
@@ -107,29 +87,36 @@ Give analysis for every option, but do not give the answer yet.""",
     async def _prepare_input_round_1(
         self,
         dataset_entry: DatasetEntry,
-        input_0: List[ChatCompletionMessageParam],
+        input_0: Conversation,
         output_0: str,
-    ) -> List[ChatCompletionMessageParam]:
+    ) -> Conversation:
         assert len(input_0) == 2
 
-        response_input: List[ChatCompletionMessageParam] = [
-            ChatCompletionSystemMessageParam(
+        response_input: Conversation = [
+            Message(
                 role="system",
-                content="""Watch the video carefully and analyze the events and object movements, \
+                content=[
+                    TextContentPart(
+                        text="""Watch the video carefully and analyze the events and object movements, \
 focusing on any inconsistencies with physical laws. \
 Identify and highlight instances where the behavior deviates from expected real-world physics, \
-and select the most accurate option to describe the detected glitch.""",
+and select the most accurate option to describe the detected glitch."""
+                    )
+                ],
             ),
             input_0[1],
-            ChatCompletionAssistantMessageParam(
+            Message(
                 role="assistant",
-                content=output_0,
+                content=[
+                    TextContentPart(
+                        text=output_0,
+                    )
+                ],
             ),
-            ChatCompletionUserMessageParam(
+            Message(
                 role="user",
                 content=[
-                    ChatCompletionContentPartTextParam(
-                        type="text",
+                    TextContentPart(
                         text=f"""{dataset_entry.question}
 {"\n".join([f"({key}) {value}" for key, value in dataset_entry.options.items()])}
 Only give the best option enclosed in parentheses, i.e. (A), (B), (C), or (D). \
