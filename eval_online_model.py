@@ -2,7 +2,7 @@ import argparse
 import asyncio
 import pathlib
 from dataclasses import dataclass
-from typing import Dict, List, Optional, TypedDict, cast
+from typing import List, Optional, cast
 
 import dotenv
 import openai
@@ -11,7 +11,7 @@ from openai.types.chat import ChatCompletionMessageParam
 from torch.utils.data import DataLoader, Subset
 
 from physgame_benchmark import Dataset, DatasetEntry, profiles
-from physgame_benchmark.result_manager import ResultManager
+from physgame_benchmark.result_manager import ModelOutputEntry, ResultManager
 
 DEFAULT_DATASET_DIR = ".dev/PhysGame/PhysGame-Benchmark"
 DEFAULT_EVAL_RESULT_BASE_DIR = ".dev/eval"
@@ -32,18 +32,6 @@ class EvalConfig:
     @property
     def name(self) -> str:
         return f"{self.model.replace('/', '-')}-{self.profile}"
-
-
-class EvalResult(TypedDict):
-    accuracy: float
-    invalid_ratio: float
-    accuracy_by_classes: Dict[str, float]
-    invalid_ratio_by_classes: Dict[str, float]
-
-
-class ModelOutputEntry(TypedDict):
-    question_id: str
-    prediction: str
 
 
 async def evaluate(eval_config: EvalConfig) -> None:
