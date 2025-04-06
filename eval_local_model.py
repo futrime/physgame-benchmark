@@ -17,8 +17,6 @@ from transformers.generation.utils import GenerationMixin
 from transformers.modeling_utils import PreTrainedModel
 from transformers.models.auto.modeling_auto import AutoModelForImageTextToText
 from transformers.models.auto.processing_auto import AutoProcessor
-from transformers.models.qwen2_5_vl import Qwen2_5_VLForConditionalGeneration
-from transformers.models.qwen2_vl import Qwen2VLForConditionalGeneration
 from transformers.processing_utils import ProcessorMixin
 from transformers.utils.generic import PaddingStrategy
 
