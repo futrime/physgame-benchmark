@@ -9,7 +9,6 @@ from typing import List, Optional, cast
 import dotenv
 import numpy as np
 import openai
-import PIL.Image
 import tqdm
 from numpy.typing import NDArray
 from openai.types.chat import (

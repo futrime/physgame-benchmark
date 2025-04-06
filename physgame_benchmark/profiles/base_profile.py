@@ -8,7 +8,7 @@ from ..dataset import DatasetEntry
 class BaseProfile(ABC):
     @property
     @abstractmethod
-    def num_video_sample_frames(self) -> int:
+    def num_frames(self) -> int:
         """The number of frames to sample from the video."""
 
         raise NotImplementedError

@@ -6,13 +6,13 @@ from ..conversation import Conversation, Message, TextContentPart, VideoContentP
 from ..dataset import DatasetEntry
 from .base_profile import BaseProfile
 
-_NUM_VIDEO_SAMPLE_FRAMES = 8
+_NUM_FRAMES = 8
 
 
 class ZeroShotProfile(BaseProfile):
     @property
-    def num_video_sample_frames(self) -> int:
-        return _NUM_VIDEO_SAMPLE_FRAMES
+    def num_frames(self) -> int:
+        return _NUM_FRAMES
 
     async def predict(
         self,
@@ -55,7 +55,7 @@ and select the most accurate option to describe the detected glitch.""",
                 content=[
                     VideoContentPart(
                         file_path=dataset_entry.video_path,
-                        num_frames=self.num_video_sample_frames,
+                        num_frames=self.num_frames,
                     ),
                     TextContentPart(
                         text=f"""{dataset_entry.question}
