@@ -1,22 +1,48 @@
 import argparse
 import asyncio
+import base64
+import os
 import pathlib
 from dataclasses import dataclass
-from typing import Dict, List, cast
+from io import BytesIO
+from typing import Any, Dict, List, cast
 
-import accelerate
 import dotenv
 import torch
 import tqdm
-from openai.types.chat import ChatCompletionMessageParam
+from PIL.Image import Image
 from torch.utils.data import DataLoader, Subset
-from transformers import AutoModel, AutoProcessor, GenerationMixin, ProcessorMixin
+from transformers import (
+    AutoModelForCausalLM,
+    AutoProcessor,
+    BatchFeature,
+    GenerationMixin,
+    PreTrainedModel,
+    ProcessorMixin,
+    Qwen2_5_VLConfig,
+    Qwen2_5_VLForConditionalGeneration,
+    Qwen2VLConfig,
+    Qwen2VLForConditionalGeneration,
+)
+from transformers.utils import PaddingStrategy
 
-from physgame_benchmark import Dataset, DatasetEntry, profiles
-from physgame_benchmark.result_manager import ModelOutputEntry, ResultManager
+from physgame_benchmark import (
+    Conversation,
+    Dataset,
+    DatasetEntry,
+    ModelOutputEntry,
+    ResultManager,
+    TextContentPart,
+    VideoContentPart,
+    profiles,
+)
 
 DEFAULT_DATASET_DIR = ".dev/PhysGame/PhysGame-Benchmark"
 DEFAULT_EVAL_RESULT_BASE_DIR = ".dev/eval"
+
+
+class _BaseModelForCausalLM(PreTrainedModel, GenerationMixin):
+    pass
 
 
 @dataclass
@@ -34,36 +60,146 @@ class EvalConfig:
         return f"{self.model.replace('/', '-')}-{self.profile}"
 
 
+async def convert_conversation_to_hf_format(
+    conversation: Conversation,
+) -> List[Dict[str, Any]]:
+    hf_messages: List[Dict[str, Any]] = []
+
+    for message in conversation:
+        hf_contents: List[Dict[str, str]] = []
+
+        for content_part in message.content:
+            if isinstance(content_part, TextContentPart):
+                hf_contents.append(
+                    {
+                        "type": "text",
+                        "text": content_part.text,
+                    }
+                )
+            elif isinstance(content_part, VideoContentPart):
+                # images = await asyncio.to_thread(
+                #     utils.sample_video,
+                #     content_part.file_path,
+                #     num_frames=content_part.num_sample_frames,
+                # )
+                # assert len(images) == content_part.num_sample_frames
+
+                # image_base64_urls = await asyncio.gather(
+                #     *[
+                #         asyncio.to_thread(convert_image_to_base64_url, image)
+                #         for image in images
+                #     ]
+                # )
+                # assert len(image_base64_urls) == content_part.num_sample_frames
+
+                # hf_contents.extend(
+                #     [
+                #         {
+                #             "type": "image_url",
+                #             "image": image_base64_url,
+                #         }
+                #         for image_base64_url in image_base64_urls
+                #     ]
+                # )
+
+                hf_contents.append(
+                    {
+                        "type": "video",
+                        "path": str(content_part.file_path),
+                    }
+                )
+
+        hf_message = {
+            "role": message.role,
+            "content": hf_contents,
+        }
+
+        hf_messages.append(hf_message)
+
+    return hf_messages
+
+
+def convert_image_to_base64_url(
+    image: Image,
+) -> str:
+    image_bytes = BytesIO()
+    image.save(image_bytes, format="JPEG")
+    base64_image = base64.b64encode(image_bytes.getvalue()).decode("utf-8")
+    return f"data:image/jpeg;base64,{base64_image}"
+
+
+def patch_hf() -> None:
+    AutoModelForCausalLM.register(
+        config_class=Qwen2VLConfig, model_class=Qwen2VLForConditionalGeneration
+    )
+    AutoModelForCausalLM.register(
+        config_class=Qwen2_5_VLConfig, model_class=Qwen2_5_VLForConditionalGeneration
+    )
+
+
+def prepare_distributed() -> None:
+    rank = int(os.environ["RANK"])
+    device = torch.device(f"cuda:{rank}")
+    torch.cuda.set_device(device)
+    torch.distributed.init_process_group("nccl", device_id=device)
+
+
 async def evaluate(eval_config: EvalConfig) -> None:
     profile = profiles.get_profile(eval_config.profile)
 
     result_manager = ResultManager(eval_config.result_base_dir / eval_config.name)
     result_manager.load_model_outputs()
 
-    processor: ProcessorMixin = AutoProcessor.from_pretrained(eval_config.model)
+    patch_hf()
+    prepare_distributed()
 
-    with accelerate.init_empty_weights():
-        model: GenerationMixin = AutoModel.from_pretrained(
-            eval_config.model,
-            torch_dtype="auto",
-        )
+    processor: ProcessorMixin = AutoProcessor.from_pretrained(
+        eval_config.model,
+        trust_remote_code=True,
+    )
+
+    model: _BaseModelForCausalLM = AutoModelForCausalLM.from_pretrained(
+        eval_config.model,
+        torch_dtype="auto",
+        tp_plan="auto",
+        trust_remote_code=True,
+    )
 
     @torch.inference_mode()
-    async def generate(inputs: List[List[ChatCompletionMessageParam]]) -> List[str]:
-        processed_inputs = processor.apply_chat_template(
-            cast(List[List[Dict[str, str]]], inputs),
-            add_generation_prompt=True,
+    async def generate(conversations: List[Conversation]) -> List[str]:
+        hf_conversations = await asyncio.gather(
+            *[
+                convert_conversation_to_hf_format(conversation)
+                for conversation in conversations
+            ]
         )
 
-        outputs = model.generate(
-            **processed_inputs,
+        model_inputs = cast(
+            BatchFeature,
+            processor.apply_chat_template(
+                hf_conversations,
+                add_generation_prompt=True,
+                do_resize=True,
+                num_frames=profile.num_video_sample_frames,
+                padding=PaddingStrategy.LONGEST,
+                return_dict=True,
+                return_tensors="pt",
+                tokenize=True,
+                video_load_backend="opencv",
+            ),
+        ).to(model.device)
+
+        generated_outputs = model.generate(
+            **model_inputs,
             do_sample=False,
-            max_new_tokens=512,
-            temperature=0.0,
-            top_p=1.0,
-            top_k=0,
-            num_return_sequences=1,
         )
+        assert isinstance(generated_outputs, torch.LongTensor)
+
+        decoded_outputs: List[str] = processor.post_process_image_text_to_text(
+            generated_outputs
+        )
+
+        return decoded_outputs
 
     dataset = Dataset(eval_config.dataset_dir)
     dataloader = DataLoader(

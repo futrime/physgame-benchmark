@@ -1,14 +1,17 @@
 import argparse
 import asyncio
 import base64
-import pathlib
 from dataclasses import dataclass
 from io import BytesIO
+from pathlib import Path
 from typing import List, Optional, cast
 
 import dotenv
+import numpy as np
 import openai
+import PIL.Image
 import tqdm
+from numpy.typing import NDArray
 from openai.types.chat import (
     ChatCompletionContentPartImageParam,
     ChatCompletionContentPartParam,
@@ -18,7 +21,9 @@ from openai.types.chat import (
 from openai.types.chat.chat_completion_content_part_image_param import ImageURL
 from PIL.Image import Image
 from torch.utils.data import DataLoader, Subset
+from transformers import image_transforms, image_utils
 
+import physgame_benchmark.profiles as profiles
 from physgame_benchmark import (
     Conversation,
     Dataset,
@@ -27,8 +32,6 @@ from physgame_benchmark import (
     ResultManager,
     TextContentPart,
     VideoContentPart,
-    profiles,
-    utils,
 )
 
 DEFAULT_DATASET_DIR = ".dev/PhysGame/PhysGame-Benchmark"
@@ -44,8 +47,8 @@ class EvalConfig:
     base_url: Optional[str]
 
     batch_size: int
-    dataset_dir: pathlib.Path
-    result_base_dir: pathlib.Path
+    dataset_dir: Path
+    result_base_dir: Path
 
     @property
     def name(self) -> str:
@@ -69,20 +72,10 @@ async def convert_conversation_to_openai_format(
                     )
                 )
             elif isinstance(content_part, VideoContentPart):
-                images = await asyncio.to_thread(
-                    utils.sample_video,
+                image_base64_urls = await read_video_as_base64_urls(
                     content_part.file_path,
-                    num_frames=content_part.num_sample_frames,
+                    content_part.num_frames,
                 )
-                assert len(images) == content_part.num_sample_frames
-
-                image_base64_urls = await asyncio.gather(
-                    *[
-                        asyncio.to_thread(convert_image_to_base64_url, image)
-                        for image in images
-                    ]
-                )
-                assert len(image_base64_urls) == content_part.num_sample_frames
 
                 openai_contents.extend(
                     [
@@ -109,13 +102,39 @@ async def convert_conversation_to_openai_format(
     return openai_messages
 
 
-def convert_image_to_base64_url(
-    image: Image,
-) -> str:
-    image_bytes = BytesIO()
-    image.save(image_bytes, format="JPEG")
-    base64_image = base64.b64encode(image_bytes.getvalue()).decode("utf-8")
-    return f"data:image/jpeg;base64,{base64_image}"
+async def read_video_as_base64_urls(
+    video_path: Path,
+    num_frames: int,
+) -> List[str]:
+    video, _ = await asyncio.to_thread(
+        image_utils.load_video,
+        str(video_path),
+        num_frames=num_frames,
+    )
+    video: NDArray[np.uint8]
+    assert video.shape[0] == num_frames
+
+    images: List[Image] = await asyncio.gather(
+        *[
+            asyncio.to_thread(
+                image_transforms.to_pil_image,
+                video[i],
+            )
+            for i in range(num_frames)
+        ]
+    )
+
+    def convert_image_to_base64_url(image: Image) -> str:
+        image_bytes = BytesIO()
+        image.save(image_bytes, format="JPEG")
+        base64_image = base64.b64encode(image_bytes.getvalue()).decode("utf-8")
+        return f"data:image/jpeg;base64,{base64_image}"
+
+    image_base64_urls = await asyncio.gather(
+        *[asyncio.to_thread(convert_image_to_base64_url, image) for image in images]
+    )
+
+    return image_base64_urls
 
 
 async def evaluate(eval_config: EvalConfig) -> None:
@@ -150,6 +169,7 @@ async def evaluate(eval_config: EvalConfig) -> None:
         return [str(response.choices[0].message.content) for response in responses]
 
     dataset = Dataset(eval_config.dataset_dir)
+    dataset = Subset(dataset, range(10))
     dataloader = DataLoader(
         dataset=Subset(
             dataset,
@@ -217,8 +237,8 @@ async def main() -> None:
         api_key=cast(Optional[str], args.api_key),
         base_url=cast(Optional[str], args.base_url),
         batch_size=cast(int, args.batch_size),
-        dataset_dir=pathlib.Path(cast(str, args.dataset_dir)),
-        result_base_dir=pathlib.Path(cast(str, args.result_base_dir)),
+        dataset_dir=Path(cast(str, args.dataset_dir)),
+        result_base_dir=Path(cast(str, args.result_base_dir)),
     )
 
     await evaluate(eval_config)

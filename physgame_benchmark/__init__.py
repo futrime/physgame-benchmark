@@ -1,16 +1,14 @@
-from . import utils
 from .conversation import (
     BaseContentPart,
     Conversation,
-    TextContentPart,
     Message,
+    TextContentPart,
     VideoContentPart,
 )
 from .dataset import Dataset, DatasetEntry
-from .result_manager import ModelOutputEntry, ResultManager, Metrics
+from .result_manager import Metrics, ModelOutputEntry, ResultManager
 
 __all__ = [
-    "utils",
     "Conversation",
     "Message",
     "BaseContentPart",

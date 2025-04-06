@@ -17,7 +17,7 @@ class TextContentPart(BaseContentPart):
 @dataclass
 class VideoContentPart(BaseContentPart):
     file_path: Path
-    num_sample_frames: int
+    num_frames: int
 
 
 @dataclass

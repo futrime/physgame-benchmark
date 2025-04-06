@@ -71,7 +71,7 @@ and analyze every option to determine how accurate are they to describe the dete
                 content=[
                     VideoContentPart(
                         file_path=dataset_entry.video_path,
-                        num_sample_frames=self.num_video_sample_frames,
+                        num_frames=self.num_video_sample_frames,
                     ),
                     TextContentPart(
                         text=f"""{dataset_entry.question}

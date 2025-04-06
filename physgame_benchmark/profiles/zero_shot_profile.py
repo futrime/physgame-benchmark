@@ -55,7 +55,7 @@ and select the most accurate option to describe the detected glitch.""",
                 content=[
                     VideoContentPart(
                         file_path=dataset_entry.video_path,
-                        num_sample_frames=self.num_video_sample_frames,
+                        num_frames=self.num_video_sample_frames,
                     ),
                     TextContentPart(
                         text=f"""{dataset_entry.question}

@@ -20,7 +20,6 @@ def get_profile(profile_name: str) -> BaseProfile:
 
 __all__ = [
     "BaseProfile",
-    "ZeroShotProfile",
     "get_available_profiles",
     "get_profile",
 ]
