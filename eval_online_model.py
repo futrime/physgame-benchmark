@@ -169,7 +169,6 @@ async def evaluate(eval_config: EvalConfig) -> None:
         return [str(response.choices[0].message.content) for response in responses]
 
     dataset = Dataset(eval_config.dataset_dir)
-    dataset = Subset(dataset, range(10))
     dataloader = DataLoader(
         dataset=Subset(
             dataset,
