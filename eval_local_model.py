@@ -1,7 +1,7 @@
 import argparse
 import asyncio
-import pathlib
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, cast
 
 import dotenv
@@ -32,9 +32,6 @@ from physgame_benchmark import (
 )
 from physgame_benchmark.profiles import BaseProfile
 
-DEFAULT_DATASET_DIR = ".dev/PhysGame/PhysGame-Benchmark"
-DEFAULT_EVAL_RESULT_BASE_DIR = ".dev/eval"
-
 
 class _BaseModelForConditionalGeneration(PreTrainedModel, GenerationMixin):
     pass
@@ -48,8 +45,8 @@ class EvalConfig:
 
     attn_implementation: str
     batch_size: int
-    dataset_dir: pathlib.Path
-    result_base_dir: pathlib.Path
+    dataset_dir: Path
+    result_base_dir: Path
 
     @property
     def name(self) -> str:
@@ -228,11 +225,13 @@ async def main() -> None:
     )
     parser.add_argument("--batch-size", type=int, default=1, help="Batch size")
     parser.add_argument(
-        "--dataset-dir", default=DEFAULT_DATASET_DIR, help="Dataset directory"
+        "--dataset-dir",
+        default=".dev/PhysGame/PhysGame-Benchmark",
+        help="Dataset directory",
     )
     parser.add_argument(
         "--result-base-dir",
-        default=DEFAULT_EVAL_RESULT_BASE_DIR,
+        default=".dev/eval",
         help="Evaluation result base directory",
     )
 
@@ -243,8 +242,8 @@ async def main() -> None:
         model=cast(str, args.model),
         attn_implementation=cast(str, args.attn_implementation),
         batch_size=cast(int, args.batch_size),
-        dataset_dir=pathlib.Path(cast(str, args.dataset_dir)),
-        result_base_dir=pathlib.Path(cast(str, args.result_base_dir)),
+        dataset_dir=Path(cast(str, args.dataset_dir)),
+        result_base_dir=Path(cast(str, args.result_base_dir)),
     )
 
     await evaluate(eval_config)
