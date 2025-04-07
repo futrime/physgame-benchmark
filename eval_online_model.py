@@ -1,16 +1,11 @@
 import argparse
 import asyncio
-import base64
 from dataclasses import dataclass
-from io import BytesIO
 from pathlib import Path
 from typing import List, Optional, cast
 
 import dotenv
-import numpy as np
-import openai
-import tqdm
-from numpy.typing import NDArray
+from openai import AsyncOpenAI
 from openai.types.chat import (
     ChatCompletionContentPartImageParam,
     ChatCompletionContentPartParam,
@@ -18,20 +13,19 @@ from openai.types.chat import (
     ChatCompletionMessageParam,
 )
 from openai.types.chat.chat_completion_content_part_image_param import ImageURL
-from PIL.Image import Image
 from torch.utils.data import DataLoader, Subset
-from transformers import image_transforms, image_utils
+from tqdm import tqdm
 
 import physgame_benchmark.profiles as profiles
-from physgame_benchmark import (
+import physgame_benchmark.utils as utils
+from physgame_benchmark.conversation import (
     Conversation,
-    Dataset,
-    DatasetEntry,
-    ModelOutputEntry,
-    ResultManager,
+    ImagePillowContentPart,
     TextContentPart,
     VideoContentPart,
 )
+from physgame_benchmark.dataset import Dataset, DatasetEntry
+from physgame_benchmark.result_manager import ModelOutputEntry, ResultManager
 
 DEFAULT_DATASET_DIR = ".dev/PhysGame/PhysGame-Benchmark"
 DEFAULT_EVAL_RESULT_BASE_DIR = ".dev/eval"
@@ -70,23 +64,21 @@ async def convert_conversation_to_openai_format(
                         text=content_part.text,
                     )
                 )
-            elif isinstance(content_part, VideoContentPart):
-                image_base64_urls = await read_video_as_base64_urls(
-                    content_part.file_path,
-                    content_part.num_frames,
+
+            if isinstance(content_part, ImagePillowContentPart):
+                openai_contents.append(
+                    ChatCompletionContentPartImageParam(
+                        type="image_url",
+                        image_url=ImageURL(
+                            url=await utils.convert_pil_image_to_base64_url(
+                                content_part.image
+                            ),
+                        ),
+                    )
                 )
 
-                openai_contents.extend(
-                    [
-                        ChatCompletionContentPartImageParam(
-                            type="image_url",
-                            image_url=ImageURL(
-                                url=image_base64_url,
-                            ),
-                        )
-                        for image_base64_url in image_base64_urls
-                    ]
-                )
+            elif isinstance(content_part, VideoContentPart):
+                raise NotImplementedError("Video content part is not supported yet")
 
         openai_message = cast(
             ChatCompletionMessageParam,
@@ -101,48 +93,13 @@ async def convert_conversation_to_openai_format(
     return openai_messages
 
 
-async def read_video_as_base64_urls(
-    video_path: Path,
-    num_frames: int,
-) -> List[str]:
-    video, _ = await asyncio.to_thread(
-        image_utils.load_video,
-        str(video_path),
-        num_frames=num_frames,
-    )
-    video: NDArray[np.uint8]
-    assert video.shape[0] == num_frames
-
-    images: List[Image] = await asyncio.gather(
-        *[
-            asyncio.to_thread(
-                image_transforms.to_pil_image,
-                video[i],
-            )
-            for i in range(num_frames)
-        ]
-    )
-
-    def convert_image_to_base64_url(image: Image) -> str:
-        image_bytes = BytesIO()
-        image.save(image_bytes, format="JPEG")
-        base64_image = base64.b64encode(image_bytes.getvalue()).decode("utf-8")
-        return f"data:image/jpeg;base64,{base64_image}"
-
-    image_base64_urls = await asyncio.gather(
-        *[asyncio.to_thread(convert_image_to_base64_url, image) for image in images]
-    )
-
-    return image_base64_urls
-
-
 async def evaluate(eval_config: EvalConfig) -> None:
     profile = profiles.get_profile(eval_config.profile)
 
     result_manager = ResultManager(eval_config.result_base_dir / eval_config.name)
     result_manager.load_model_outputs()
 
-    client = openai.AsyncOpenAI(
+    client = AsyncOpenAI(
         api_key=eval_config.api_key,
         base_url=eval_config.base_url,
     )
@@ -181,7 +138,7 @@ async def evaluate(eval_config: EvalConfig) -> None:
         collate_fn=lambda x: x,
     )
 
-    for dataset_entries in tqdm.tqdm(dataloader):
+    for dataset_entries in tqdm(dataloader):
         dataset_entries: List[DatasetEntry]
 
         predictions = await profile.predict(dataset_entries, generate)

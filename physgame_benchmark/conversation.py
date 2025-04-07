@@ -3,6 +3,8 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Literal
 
+from PIL.Image import Image
+
 
 @dataclass
 class BaseContentPart(ABC):
@@ -15,9 +17,13 @@ class TextContentPart(BaseContentPart):
 
 
 @dataclass
+class ImagePillowContentPart(BaseContentPart):
+    image: Image
+
+
+@dataclass
 class VideoContentPart(BaseContentPart):
-    file_path: Path
-    num_frames: int
+    path: Path
 
 
 @dataclass

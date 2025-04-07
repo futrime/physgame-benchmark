@@ -5,13 +5,10 @@ from pathlib import Path
 from typing import Any, Dict, List, cast
 
 import dotenv
-import numpy as np
 import torch
-import tqdm
-from numpy.typing import NDArray
-from PIL.Image import Image
+from torch import Tensor
 from torch.utils.data import DataLoader, Subset
-from transformers import image_transforms, image_utils
+from tqdm import tqdm
 from transformers.feature_extraction_utils import BatchFeature
 from transformers.generation.utils import GenerationMixin
 from transformers.modeling_utils import PreTrainedModel
@@ -20,17 +17,15 @@ from transformers.models.auto.processing_auto import AutoProcessor
 from transformers.processing_utils import ProcessorMixin
 from transformers.utils.generic import PaddingStrategy
 
-from physgame_benchmark import (
+import physgame_benchmark.profiles as profiles
+from physgame_benchmark.conversation import (
     Conversation,
-    Dataset,
-    DatasetEntry,
-    ModelOutputEntry,
-    ResultManager,
+    ImagePillowContentPart,
     TextContentPart,
     VideoContentPart,
-    profiles,
 )
-from physgame_benchmark.profiles import BaseProfile
+from physgame_benchmark.dataset import Dataset, DatasetEntry
+from physgame_benchmark.result_manager import ModelOutputEntry, ResultManager
 
 
 class _BaseModelForConditionalGeneration(PreTrainedModel, GenerationMixin):
@@ -55,7 +50,6 @@ class EvalConfig:
 
 async def convert_conversation_to_hf_format(
     conversation: Conversation,
-    profile: BaseProfile,
 ) -> List[Dict[str, Any]]:
     hf_messages: List[Dict[str, Any]] = []
 
@@ -70,29 +64,21 @@ async def convert_conversation_to_hf_format(
                         "text": content_part.text,
                     }
                 )
+
+            if isinstance(content_part, ImagePillowContentPart):
+                hf_contents.append(
+                    {
+                        "type": "image",
+                        "image": content_part.image,
+                    }
+                )
+
             elif isinstance(content_part, VideoContentPart):
-                video, _ = await asyncio.to_thread(
-                    image_utils.load_video,
-                    str(content_part.file_path),
-                    num_frames=profile.num_frames,
-                )
-                video: NDArray[np.uint8]
-
-                images: List[Image] = await asyncio.gather(
-                    *[
-                        asyncio.to_thread(image_transforms.to_pil_image, frame)
-                        for frame in video
-                    ]
-                )
-
-                hf_contents.extend(
-                    [
-                        {
-                            "type": "image",
-                            "image": image,
-                        }
-                        for image in images
-                    ]
+                hf_contents.append(
+                    {
+                        "type": "video",
+                        "path": content_part.path,
+                    }
                 )
 
         hf_message = {
@@ -132,10 +118,7 @@ async def evaluate(eval_config: EvalConfig) -> None:
     async def generate(conversations: List[Conversation]) -> List[str]:
         hf_conversations = await asyncio.gather(
             *[
-                convert_conversation_to_hf_format(
-                    conversation,
-                    profile,
-                )
+                convert_conversation_to_hf_format(conversation)
                 for conversation in conversations
             ]
         )
@@ -143,6 +126,7 @@ async def evaluate(eval_config: EvalConfig) -> None:
         model_inputs = processor.apply_chat_template(
             hf_conversations,
             add_generation_prompt=True,
+            num_frames=profile.num_frames,
             padding=PaddingStrategy.LONGEST,
             return_dict=True,
             return_tensors="pt",
@@ -159,12 +143,10 @@ async def evaluate(eval_config: EvalConfig) -> None:
             temperature=None,
             top_p=None,
         )
-        assert isinstance(generated_outputs, torch.Tensor)
+        assert isinstance(generated_outputs, Tensor)
 
         decoded_outputs: List[str] = processor.post_process_image_text_to_text(
-            generated_outputs[
-                :, cast(torch.LongTensor, model_inputs.input_ids).shape[1] :
-            ],
+            generated_outputs[:, cast(Tensor, model_inputs.input_ids).shape[1] :],
         )
 
         return decoded_outputs
@@ -183,7 +165,7 @@ async def evaluate(eval_config: EvalConfig) -> None:
         collate_fn=lambda x: x,
     )
 
-    for dataset_entries in tqdm.tqdm(dataloader):
+    for dataset_entries in tqdm(dataloader):
         dataset_entries: List[DatasetEntry]
 
         predictions = await profile.predict(dataset_entries, generate)

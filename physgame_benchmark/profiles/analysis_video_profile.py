@@ -9,7 +9,7 @@ from .base_profile import BaseProfile
 _NUM_FRAMES = 8
 
 
-class AnalysisProfile(BaseProfile):
+class AnalysisVideoProfile(BaseProfile):
     @property
     def num_frames(self) -> int:
         return _NUM_FRAMES
@@ -70,8 +70,7 @@ and analyze every option to determine how accurate are they to describe the dete
                 role="user",
                 content=[
                     VideoContentPart(
-                        file_path=dataset_entry.video_path,
-                        num_frames=self.num_frames,
+                        path=dataset_entry.video_path,
                     ),
                     TextContentPart(
                         text=f"""{dataset_entry.question}

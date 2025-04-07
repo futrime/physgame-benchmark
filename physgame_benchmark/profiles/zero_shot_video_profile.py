@@ -2,20 +2,14 @@ import asyncio
 import re
 from typing import Awaitable, Callable, List, Optional
 
-from ..conversation import (
-    Conversation,
-    ImagePillowContentPart,
-    Message,
-    TextContentPart,
-)
+from ..conversation import Conversation, Message, TextContentPart, VideoContentPart
 from ..dataset import DatasetEntry
-from ..utils import read_video_as_pil_images
 from .base_profile import BaseProfile
 
 _NUM_FRAMES = 8
 
 
-class ZeroShotProfile(BaseProfile):
+class ZeroShotVideoProfile(BaseProfile):
     @property
     def num_frames(self) -> int:
         return _NUM_FRAMES
@@ -59,13 +53,9 @@ and select the most accurate option to describe the detected glitch.""",
             Message(
                 role="user",
                 content=[
-                    *[
-                        ImagePillowContentPart(image=image)
-                        for image in await read_video_as_pil_images(
-                            dataset_entry.video_path,
-                            num_frames=self.num_frames,
-                        )
-                    ],
+                    VideoContentPart(
+                        path=dataset_entry.video_path,
+                    ),
                     TextContentPart(
                         text=f"""{dataset_entry.question}
 {"\n".join([f"({key}) {value}" for key, value in dataset_entry.options.items()])}
